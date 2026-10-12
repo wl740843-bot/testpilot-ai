@@ -1,0 +1,12 @@
+# ============ 项目依赖清单 ============
+# 用途：让别人（或换台电脑）一条命令装齐所有依赖：
+#   pip install -r requirements.txt
+# 本文件由 pip freeze > requirements.txt 可以生成锁定版本，
+# Day 1 先不锁版本，装最新即可。
+
+streamlit
+requests
+pandas
+openpyxl
+pytest
+python-dotenv
