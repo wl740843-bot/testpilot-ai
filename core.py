@@ -5,16 +5,18 @@ Day 1 先放一个简单的示例函数，
 用来演示"模块如何被调用"。
 """
 
+import json
+
 # ============ 测试用例的统一数据结构约定 ============
 # 一条用例 = 一个字典，必须包含下面 6 个字段，谁都不能少。
 # 以后演示模式、真实模型生成的结果，都按这个格式来。
 REQUIRED_FIELDS = [
-    "title",          # 用例标题：这条用例测什么
+    "title",  # 用例标题：这条用例测什么
     "preconditions",  # 前置条件：测试开始前环境要满足什么
-    "steps",          # 测试步骤：字符串列表，一步步怎么操作
-    "expected",       # 预期结果：操作完应该看到什么
-    "priority",       # 优先级：高 / 中 / 低
-    "test_type",      # 测试类型：功能测试 / 异常测试 / 边界测试
+    "steps",  # 测试步骤：字符串列表，一步步怎么操作
+    "expected",  # 预期结果：操作完应该看到什么
+    "priority",  # 优先级：高 / 中 / 低
+    "test_type",  # 测试类型：功能测试 / 异常测试 / 边界测试
 ]
 
 
@@ -105,3 +107,47 @@ def validate_cases(cases: list) -> dict:
     if errors:
         return {"ok": False, "errors": errors}
     return {"ok": True, "errors": []}
+
+
+def parse_json(text: str) -> dict:
+    """把模型返回的文本解析成 Python 数据。
+
+    返回统一结构：
+        {"ok": True, "data": [...], "error": None}    解析成功
+        {"ok": False, "data": [], "error": "原因"}    解析失败
+    """
+    # 空文本：直接报错，别去解析
+    if text is None or text.strip() == "":
+        return {"ok": False, "data": [], "error": "模型返回内容为空。"}
+
+    # 尝试解析 JSON；失败会被 except 接住，程序不崩溃
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        return {"ok": False, "data": [], "error": f"不是合法的 JSON 格式：{e}"}
+
+    return {"ok": True, "data": data, "error": None}
+
+
+def generate_cases(requirement: str) -> dict:
+    """完整流程：校验输入 → 生成数据 → 校验输出。
+
+    Day 3 先用演示模式（demo_cases）生成，
+    以后接入真实模型时，把中间这步换成模型调用即可。
+    """
+    # 1. 校验输入：空需求直接失败，不往下走
+    demo = demo_cases(requirement)
+    if not demo["ok"]:
+        return demo
+
+    # 2. 校验输出：生成结果必须过"验卡员"，不合格就打回
+    check = validate_cases(demo["cases"])
+    if not check["ok"]:
+        return {
+            "ok": False,
+            "cases": [],
+            "error": "生成的用例未通过校验：" + "; ".join(check["errors"]),
+        }
+
+    # 3. 全部通过，交结果
+    return demo

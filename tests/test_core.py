@@ -9,7 +9,7 @@ from pathlib import Path
 # 把项目根目录加入模块搜索路径
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import get_greeting, demo_cases, validate_cases
+from core import get_greeting, demo_cases, validate_cases, parse_json, generate_cases
 
 
 def test_get_greeting_with_name():
@@ -72,3 +72,38 @@ def test_validate_cases_empty_list():
     """空列表：被拒绝。"""
     result = validate_cases([])
     assert result["ok"] is False
+
+
+def test_parse_json_valid():
+    """合法 JSON 可以解析成 Python 数据。"""
+    result = parse_json('{"title": "登录", "priority": "高"}')
+    assert result["ok"] is True
+    assert result["data"]["title"] == "登录"
+
+
+def test_parse_json_invalid():
+    """非法 JSON 被捕获，返回可理解的错误，不崩溃。"""
+    result = parse_json("这不是 JSON")
+    assert result["ok"] is False
+    assert "JSON" in result["error"]
+
+
+def test_parse_json_empty():
+    """空文本直接报错。"""
+    result = parse_json("")
+    assert result["ok"] is False
+    assert "为空" in result["error"]
+
+
+def test_generate_cases_normal():
+    """正常需求：流水线全过，返回 3 条用例。"""
+    result = generate_cases("注册功能")
+    assert result["ok"] is True
+    assert len(result["cases"]) == 3
+
+
+def test_generate_cases_empty():
+    """空需求：第一道关卡拦截。"""
+    result = generate_cases("")
+    assert result["ok"] is False
+    assert "不能为空" in result["error"]
