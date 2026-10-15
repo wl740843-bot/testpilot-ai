@@ -75,10 +75,31 @@ def test_validate_cases_empty_list():
 
 
 def test_parse_json_valid():
-    """合法 JSON 可以解析成 Python 数据。"""
-    result = parse_json('{"title": "登录", "priority": "高"}')
+    """合法 JSON 列表可以解析成 Python 数据。"""
+    result = parse_json('[{"title": "登录", "priority": "高"}]')
     assert result["ok"] is True
-    assert result["data"]["title"] == "登录"
+    assert result["data"][0]["title"] == "登录"
+
+
+def test_parse_json_rejects_string():
+    """解析出字符串：不是用例列表，拒绝。"""
+    result = parse_json('"hello"')
+    assert result["ok"] is False
+    assert "列表" in result["error"]
+
+
+def test_parse_json_rejects_number():
+    """解析出数字：不是用例列表，拒绝。"""
+    result = parse_json('123')
+    assert result["ok"] is False
+    assert "列表" in result["error"]
+
+
+def test_parse_json_rejects_dict():
+    """解析出字典：不是用例列表，拒绝。"""
+    result = parse_json('{"a": 1}')
+    assert result["ok"] is False
+    assert "列表" in result["error"]
 
 
 def test_parse_json_invalid():
@@ -107,3 +128,33 @@ def test_generate_cases_empty():
     result = generate_cases("")
     assert result["ok"] is False
     assert "不能为空" in result["error"]
+
+
+def test_generate_cases_with_model_text():
+    """模型路线：合法用例列表 JSON 走完全链路。"""
+    model_text = ('[{"title": "登录", "preconditions": "系统可用", '
+                  '"steps": ["输入账号"], "expected": "登录成功", '
+                  '"priority": "高", "test_type": "功能测试"}]')
+    result = generate_cases("登录功能", model_text=model_text)
+    assert result["ok"] is True
+    assert len(result["cases"]) == 1
+
+
+def test_generate_cases_with_bad_model_text():
+    """模型路线：非法 JSON 被拦截，提示可理解。"""
+    result = generate_cases("登录功能", model_text="这不是JSON")
+    assert result["ok"] is False
+    assert "解析失败" in result["error"]
+
+
+def test_generate_cases_with_nonlist_model_text():
+    """模型路线：解析成功但不是列表，被拦截。"""
+    result = generate_cases("登录功能", model_text='{"title": "登录"}')
+    assert result["ok"] is False
+    assert "解析失败" in result["error"]
+
+def test_validate_cases_non_dict():
+    """非字典用例：返回错误，不崩溃。"""
+    result = validate_cases(["title"])
+    assert result["ok"] is False
+    assert "不是字典" in result["errors"][0]

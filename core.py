@@ -91,6 +91,10 @@ def validate_cases(cases: list) -> dict:
         return {"ok": False, "errors": ["用例列表为空，没有任何用例。"]}
 
     for i, case in enumerate(cases, start=1):
+        # 0. 非字典元素：真实模型可能返回乱数据，直接记错误，不往下走
+        if not isinstance(case, dict):
+            errors.append(f"第{i}条用例不是字典，无法校验")
+            continue
         # 1. 检查 6 个必需字段是否都存在
         for field in REQUIRED_FIELDS:
             if field not in case:
@@ -126,22 +130,39 @@ def parse_json(text: str) -> dict:
     except json.JSONDecodeError as e:
         return {"ok": False, "data": [], "error": f"不是合法的 JSON 格式：{e}"}
 
+    # 新：必须是最外层是列表，字符串/数字/字典都不算用例数据
+    if not isinstance(data, list):
+        return {"ok": False, "data": [], "error": "JSON 格式正确，但最外层必须是列表（用例数组）。"}
+
     return {"ok": True, "data": data, "error": None}
 
 
-def generate_cases(requirement: str) -> dict:
-    """完整流程：校验输入 → 生成数据 → 校验输出。
+def generate_cases(requirement: str, model_text: str = None) -> dict:
+    """完整流程：校验输入 → 生成或解析数据 → 校验输出。
 
-    Day 3 先用演示模式（demo_cases）生成，
-    以后接入真实模型时，把中间这步换成模型调用即可。
+    model_text 为 None 时走演示模式（demo_cases 生成）；
+    传入模型输出的 JSON 文本时，先用 parse_json 解析，再走验卡员。
     """
     # 1. 校验输入：空需求直接失败，不往下走
-    demo = demo_cases(requirement)
-    if not demo["ok"]:
-        return demo
+    if requirement is None or requirement.strip() == "":
+        return {"ok": False, "cases": [], "error": "需求不能为空，请输入要测试的功能描述。"}
 
-    # 2. 校验输出：生成结果必须过"验卡员"，不合格就打回
-    check = validate_cases(demo["cases"])
+    # 2a. 真实模型路线：解析模型文本 → 得到用例
+    if model_text is not None:
+        parsed = parse_json(model_text)
+        if not parsed["ok"]:
+            return {"ok": False, "cases": [], "error": "模型输出解析失败：" + parsed["error"]}
+        raw_cases = parsed["data"]
+
+    # 2b. 演示模式路线：填表机直接生成
+    else:
+        demo = demo_cases(requirement)
+        if not demo["ok"]:
+            return demo
+        raw_cases = demo["cases"]
+
+    # 3. 校验输出：生成结果必须过"验卡员"，不合格就打回
+    check = validate_cases(raw_cases)
     if not check["ok"]:
         return {
             "ok": False,
@@ -149,5 +170,5 @@ def generate_cases(requirement: str) -> dict:
             "error": "生成的用例未通过校验：" + "; ".join(check["errors"]),
         }
 
-    # 3. 全部通过，交结果
-    return demo
+    # 4. 全部通过，交结果
+    return {"ok": True, "cases": raw_cases, "error": None}
