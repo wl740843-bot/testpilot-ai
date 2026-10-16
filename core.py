@@ -172,3 +172,61 @@ def generate_cases(requirement: str, model_text: str = None) -> dict:
 
     # 4. 全部通过，交结果
     return {"ok": True, "cases": raw_cases, "error": None}
+# ============ pytest 日志分析：报错关键词 → 排查建议 对照表 ============
+# 线索归线索，结论归结论：这里只给"排查方向"，不给"已确认根因"。
+FAILURE_RULES = {
+    "AssertionError": "断言失败：期望值和实际值不一致，检查被断言的条件、输入数据和预期结果",
+    "TypeError": "类型错误：函数收到不匹配的数据类型，检查变量类型和函数传参",
+    "KeyError": "键错误：字典里没有这个 key，检查字典内容、拼写和构造来源",
+    "ModuleNotFoundError": "模块未安装：依赖没装进当前虚拟环境，检查 requirements.txt 并执行 pip install -r requirements.txt",
+    "ImportError": "导入失败：模块存在但导入出错，检查文件路径、命名冲突和循环导入",
+    "FileNotFoundError": "文件未找到：路径不对或文件不存在，检查路径写法、当前工作目录和文件是否生成",
+    "TimeoutError": "超时：操作超过等待时间，检查网络、服务响应时间和等待时长设置",
+    "FAILED": "用例执行失败：pytest 判定该用例未通过，需结合上方具体报错信息定位",
+}
+
+
+def analyze_failure(log_text: str) -> dict:
+    """把报错日志翻译成排查方向（线索 + 初步建议，不下结论）。
+
+    返回统一结构：
+        {"ok": True, "clues": [...], "suggestions": [...], "error": None}    正常
+        {"ok": False, "clues": [], "suggestions": [], "error": "原因"}        输入为空
+    """
+    # 1. 空日志 / 纯空格：明确提示，不假装分析
+    if log_text is None or log_text.strip() == "":
+        return {
+            "ok": False,
+            "clues": [],
+            "suggestions": [],
+            "error": "日志为空，请粘贴要分析的报错内容。",
+        }
+
+    clues = []
+    suggestions = []
+    lines = log_text.splitlines()
+
+    # 2. 逐行扫描：找关键词，记"第几行 + 命中行原文 + 下一行"
+    for i, line in enumerate(lines, start=1):
+        for keyword, advice in FAILURE_RULES.items():
+            if keyword in line:
+                snippet = line.strip()
+                if i < len(lines):
+                    snippet += " → " + lines[i].strip()
+                clues.append(f"第{i}行出现 {keyword}：{snippet}")
+                if advice not in suggestions:
+                    suggestions.append(advice)
+                break  # 一行只认一个关键词，避免刷屏
+
+    # 3. 一个关键词都没中：普通日志
+    if not clues:
+        return {
+            "ok": True,
+            "clues": ["未发现常见报错关键词。"],
+            "suggestions": ["日志中没有匹配到常见报错，建议补充完整的 traceback 后重新分析。"],
+            "error": None,
+        }
+
+    # 4. 有关键词：交线索和建议
+    return {"ok": True, "clues": clues, "suggestions": suggestions, "error": None}
+
