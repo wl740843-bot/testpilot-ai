@@ -209,7 +209,7 @@ def analyze_failure(log_text: str) -> dict:
     # 2. 逐行扫描：找关键词，记"第几行 + 命中行原文 + 下一行"
     for i, line in enumerate(lines, start=1):
         for keyword, advice in FAILURE_RULES.items():
-            if keyword in line:
+            if keyword.lower() in line.lower():
                 snippet = line.strip()
                 if i < len(lines):
                     snippet += " → " + lines[i].strip()
