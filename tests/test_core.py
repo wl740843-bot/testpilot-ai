@@ -10,23 +10,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import (
-    get_greeting,
     demo_cases,
     validate_cases,
     parse_json,
     generate_cases,
     analyze_failure,
 )
-
-
-def test_get_greeting_with_name():
-    """传入名字时，返回对应的问候语。"""
-    assert get_greeting("小明") == "你好，小明！"
-
-
-def test_get_greeting_default():
-    """不传参数时，使用默认值"世界"。"""
-    assert get_greeting() == "你好，世界！"
 
 
 def test_demo_cases_normal():
@@ -160,11 +149,13 @@ def test_generate_cases_with_nonlist_model_text():
     assert result["ok"] is False
     assert "解析失败" in result["error"]
 
+
 def test_validate_cases_non_dict():
     """非字典用例：返回错误，不崩溃。"""
     result = validate_cases(["title"])
     assert result["ok"] is False
     assert "不是字典" in result["errors"][0]
+
 
 # ===================== Day6 新增 analyze_failure 测试用例 =====================
 def test_analyze_empty_log():
@@ -181,6 +172,7 @@ def test_analyze_empty_log():
     assert res3["ok"] is False
     assert "日志为空" in res3["error"]
 
+
 def test_analyze_normal_log_no_error():
     """普通成功日志 21 passed：函数分析成功 ok=True；error=None；提示文本放在clues[0]"""
     log_text = """test_case_01 PASSED
@@ -194,6 +186,7 @@ test_case_02 PASSED
     assert len(res["clues"]) == 1
     assert len(res["suggestions"]) == 1
 
+
 def test_analyze_assertion_error_traceback():
     """AssertionError traceback：ok=True；clues捕获报错行+下一行，不带上一行"""
     log_text = """setup step start
@@ -206,6 +199,7 @@ teardown finish
     assert any("AssertionError: assert 10 > 20" in line for line in res["clues"])
     assert any("teardown finish" in line for line in res["clues"])
 
+
 def test_analyze_module_not_found_error():
     """ModuleNotFoundError：ok=True；suggestions 包含 pip install / requirements.txt"""
     log_text = "ModuleNotFoundError: No module named 'pytest-xdist'"
@@ -214,6 +208,7 @@ def test_analyze_module_not_found_error():
     assert len(res["clues"]) > 0
     assert any("pip install" in s for s in res["suggestions"])
     assert any("requirements.txt" in s for s in res["suggestions"])
+
 
 def test_analyze_mixed_two_errors():
     """混合 KeyError + TypeError，两个报错都捕获，ok=True"""
@@ -225,6 +220,7 @@ TypeError: unsupported operand type(s) for +: 'int' and 'str'
     assert any("KeyError" in clue for clue in res["clues"])
     assert any("TypeError" in clue for clue in res["clues"])
     assert len(res["suggestions"]) >= 2
+
 
 def test_analyze_duplicate_keyword_dedup_suggestion():
     """同一个报错关键词多次出现 → suggestion自动去重只保留1条；clues两行都捕获"""
@@ -238,6 +234,7 @@ ModuleNotFoundError: No module named 'numpy'
     # 加强断言：两行日志都抓到clues，只是建议去重
     assert len(res["clues"]) == 2
 
+
 def test_analyze_error_on_last_line_no_next():
     """报错行在日志最后一行，没有下一行，程序不崩溃，ok=True"""
     log_text = """running test suite
@@ -246,6 +243,7 @@ AssertionError: actual != expected
     res = analyze_failure(log_text)
     assert res["ok"] is True
     assert len(res["clues"]) > 0
+
 
 def test_analyze_lowercase_failed_red_first():
     """小写failed BUG：未修复core时，clues无failed → 测试红；修复core后捕获到，变绿【测试先行】

@@ -1,9 +1,10 @@
 """core.py：项目的核心逻辑模块。
 
-Day 1 先放一个简单的示例函数，
-页面入口（app.py）和测试（tests/test_core.py）都会 import 它，
-用来演示"模块如何被调用"。
+负责两件事：
+1. 测试用例的生成与校验（demo_cases / validate_cases / parse_json / generate_cases）
+2. pytest 日志分析（analyze_failure）
 """
+
 
 import json
 
@@ -18,18 +19,6 @@ REQUIRED_FIELDS = [
     "priority",  # 优先级：高 / 中 / 低
     "test_type",  # 测试类型：功能测试 / 异常测试 / 边界测试
 ]
-
-
-def get_greeting(name: str = "世界") -> str:
-    """根据名字返回一句问候语。
-
-    参数：
-        name: 要问候的名字，不传时默认"世界"。
-
-    返回：
-        形如 "你好，XX！" 的字符串。
-    """
-    return f"你好，{name}！"
 
 
 def demo_cases(requirement: str) -> dict:
