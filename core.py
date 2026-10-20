@@ -1,12 +1,19 @@
 """core.py：项目的核心逻辑模块。
 
-负责两件事：
+负责三件事：
 1. 测试用例的生成与校验（demo_cases / validate_cases / parse_json / generate_cases）
-2. pytest 日志分析（analyze_failure）
+2. 真实大模型调用（call_llm）
+3. pytest 日志分析（analyze_failure）
 """
 
 
 import json
+import os
+import requests
+from dotenv import load_dotenv
+
+# 读取 .env（找不到文件时静默跳过，不影响纯演示模式运行）
+load_dotenv()
 
 # ============ 测试用例的统一数据结构约定 ============
 # 一条用例 = 一个字典，必须包含下面 6 个字段，谁都不能少。
@@ -161,6 +168,69 @@ def generate_cases(requirement: str, model_text: str = None) -> dict:
 
     # 4. 全部通过，交结果
     return {"ok": True, "cases": raw_cases, "error": None}
+
+
+def call_llm(prompt: str, timeout: int = 30) -> dict:
+    """调用真实大模型（阿里百炼 · OpenAI 兼容接口），返回模型回复文本。
+
+    返回统一结构：
+        {"ok": True, "content": "模型回复文本", "error": None}   成功
+        {"ok": False, "content": "", "error": "人话提示"}        失败
+
+    错误处理原则：
+    1. 配置缺失 → 明确报错，不发请求；
+    2. 网络层错误（连不上 / 超时）→ 提示检查网络；
+    3. HTTP 错误（401 / 429 / 5xx）→ 按状态码给对应的人话提示；
+    4. 任何错误信息都不打印 API Key，不泄露请求细节。
+    """
+    # 1. 读配置（每次调用现读，改 .env 无需重启解释器）
+    api_key = os.getenv("DASHSCOPE_API_KEY", "").strip()
+    base_url = os.getenv("DASHSCOPE_BASE_URL", "").strip()
+    model = os.getenv("DASHSCOPE_MODEL", "qwen-plus").strip()
+
+    # 2. 配置检查：没配齐就明确报错，绝不带着假配置发请求
+    if not api_key or api_key == "your_key_here":
+        return {"ok": False, "content": "", "error": "未配置 DASHSCOPE_API_KEY，请在 .env 中填入真实 API Key，或使用演示模式。"}
+    if not base_url or "{WorkspaceId}" in base_url:
+        return {"ok": False, "content": "", "error": "BASE_URL 未配置或仍是占位符，请在 .env 中填写正确的 API 根地址。"}
+
+    # 3. 组装请求：根地址 + 聊天窗口
+    url = base_url.rstrip("/") + "/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+
+    # 4. 发送请求：网络层错误在这里接住（请求没到服务器）
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+    except requests.exceptions.Timeout:
+        return {"ok": False, "content": "", "error": f"请求超时（{timeout} 秒），请检查网络后重试。"}
+    except requests.exceptions.ConnectionError:
+        return {"ok": False, "content": "", "error": "无法连接到模型服务，请检查 BASE_URL 拼写和网络连接。"}
+    except requests.exceptions.RequestException as e:
+        return {"ok": False, "content": "", "error": f"请求发生异常：{e.__class__.__name__}。请稍后重试。"}
+
+    # 5. HTTP 状态码分类：请求到了服务器，但结果不理想
+    if resp.status_code == 200:
+        try:
+            data = resp.json()
+            answer = data["choices"][0]["message"]["content"]
+        except (ValueError, KeyError, IndexError):
+            return {"ok": False, "content": "", "error": "响应格式异常：未能从返回内容中解析出模型回复。"}
+        return {"ok": True, "content": answer, "error": None}
+
+    if resp.status_code == 401:
+        return {"ok": False, "content": "", "error": "鉴权失败（401）：API Key 无效或已过期，请检查 .env 中的 Key。"}
+    if resp.status_code == 429:
+        return {"ok": False, "content": "", "error": "请求过于频繁（429）：已触发限流，请在 .env 中改用 qwen-plus 等高限流模型，或稍等 1 分钟重试。"}
+    if resp.status_code >= 500:
+        return {"ok": False, "content": "", "error": f"模型服务暂时出错（{resp.status_code}），请稍后重试。"}
+    return {"ok": False, "content": "", "error": f"未预期的状态码 {resp.status_code}，响应内容：{resp.text[:200]}"}
 # ============ pytest 日志分析：报错关键词 → 排查建议 对照表 ============
 # 线索归线索，结论归结论：这里只给"排查方向"，不给"已确认根因"。
 FAILURE_RULES = {
