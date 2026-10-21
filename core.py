@@ -231,6 +231,75 @@ def call_llm(prompt: str, timeout: int = 30) -> dict:
     if resp.status_code >= 500:
         return {"ok": False, "content": "", "error": f"模型服务暂时出错（{resp.status_code}），请稍后重试。"}
     return {"ok": False, "content": "", "error": f"未预期的状态码 {resp.status_code}，响应内容：{resp.text[:200]}"}
+
+
+# ============ 真实模型生成用例：提示词 + 完整流程 ============
+# Day 10 正式版提示词：明确 6 字段约定 + 给出示例输出，让模型照着抄格式。
+LLM_PROMPT_TEMPLATE = """你是软件测试专家。请根据下面的需求生成测试用例，只输出 JSON 数组，不要输出任何其他文字、代码块标记或解释。
+
+每个用例必须是 JSON 对象，包含且仅包含以下 6 个字段：
+- title: 用例标题（字符串）
+- preconditions: 前置条件（字符串）
+- steps: 测试步骤（字符串数组）
+- expected: 预期结果（字符串）
+- priority: 优先级，只能是 "高"、"中"、"低"
+- test_type: 测试类型，只能是 "功能测试"、"异常测试"、"边界测试"
+
+要求覆盖正常、异常、边界三类场景。格式请严格参考下面的示例（示例内容仅为格式演示，请按实际需求生成内容）：
+
+[
+  {
+    "title": "正常流程：输入有效数据",
+    "preconditions": "系统可用，用户已进入对应页面",
+    "steps": ["打开功能页面", "输入有效数据", "点击提交"],
+    "expected": "操作成功，无报错",
+    "priority": "高",
+    "test_type": "功能测试"
+  }
+]
+
+需求：
+{requirement}
+"""
+
+
+def generate_cases_with_llm(requirement: str, max_retries: int = 2) -> dict:
+    """真实模型完整流程：调模型生成 → 解析校验 → 不合格有限次数修正。
+
+    返回统一结构（与 generate_cases 一致）：
+        {"ok": True, "cases": [...], "error": None}    成功
+        {"ok": False, "cases": [], "error": "原因"}    失败
+
+    max_retries：解析/校验失败后最多重写几次（默认 2，即最多共调用 3 次）。
+    限制次数是为了避免"无限重试"白烧 token、无限等待。
+    """
+    # 1. 拦空需求：不浪费任何一次模型调用
+    if requirement is None or requirement.strip() == "":
+        return {"ok": False, "cases": [], "error": "需求不能为空，请输入要测试的功能描述。"}
+
+    # 2. 循环调用：第 1 次 + 最多 max_retries 次修正
+    # 用 replace 而非 .format()：模板示例 JSON 自带花括号，format 会把 {title} 等误当占位符
+    prompt = LLM_PROMPT_TEMPLATE.replace("{requirement}", requirement)
+    for attempt in range(1, max_retries + 2):
+        llm = call_llm(prompt)
+        if not llm["ok"]:
+            return {"ok": False, "cases": [], "error": "模型调用失败：" + llm["error"]}
+
+        result = generate_cases(requirement, model_text=llm["content"])
+        if result["ok"]:
+            return result
+
+        # 解析/校验失败：把错误原因反馈给模型，让它重写（但不超过 max_retries 次）
+        if attempt <= max_retries:
+            prompt = (
+                LLM_PROMPT_TEMPLATE.replace("{requirement}", requirement)
+                + "\n\n你上一次的输出未通过程序校验，原因："
+                + result["error"]
+                + "\n请重新生成，务必只输出合法 JSON 数组，不要任何额外文字。"
+            )
+
+    # 3. 修正次数用完仍未通过：如实报错，绝不把非法数据当有效用例
+    return {"ok": False, "cases": [], "error": f"模型连续 {max_retries + 1} 次输出未通过校验：{result['error']}"}
 # ============ pytest 日志分析：报错关键词 → 排查建议 对照表 ============
 # 线索归线索，结论归结论：这里只给"排查方向"，不给"已确认根因"。
 FAILURE_RULES = {

@@ -13,39 +13,22 @@ from io import BytesIO
 from dotenv import load_dotenv
 load_dotenv()  # 读取 .env（幂等，core.py 也已加载）
 
-from core import generate_cases, analyze_failure, call_llm
+from core import generate_cases, analyze_failure, generate_cases_with_llm
 
 # 模式判定依据：.env 有没有真实 Key（被手动强制时听用户的）
 _API_KEY = os.getenv("DASHSCOPE_API_KEY", "").strip()
 _HAS_KEY = _API_KEY and _API_KEY != "your_key_here"
 
-# 生成用例的最小可用提示词：把项目的数据结构约定告诉模型，让它别自己瞎编格式。
-# Day 10 将系统优化：加入示例输出、场景覆盖要求、多轮修正等。
-_LLM_PROMPT_TEMPLATE = """你是软件测试专家。请根据下面的需求生成测试用例，只输出 JSON 数组，不要输出任何其他文字。
-
-每个用例必须是 JSON 对象，包含且仅包含以下 6 个字段：
-- title: 用例标题（字符串）
-- preconditions: 前置条件（字符串）
-- steps: 测试步骤（字符串数组）
-- expected: 预期结果（字符串）
-- priority: 优先级，只能是 "高"、"中"、"低"
-- test_type: 测试类型，只能是 "功能测试"、"异常测试"、"边界测试"
-
-要求覆盖正常、异常、边界三类场景。
-
-需求：
-{requirement}
-"""
-
 st.set_page_config(page_title="TestPilot AI 测试助手")
 
 # 模式选择：自动（推荐）= 有 Key 走真实模型，没 Key 走演示模式；也可手动强制
-_mode_choice = st.sidebar.radio(
+_mode_choice = st.radio(
     "模型模式",
     ["自动（推荐）", "强制演示模式", "强制真实模型"],
-    help="自动：.env 配置了真实 API Key 就用真实模型，否则用演示模式。",
+    index=0,
+    horizontal=True,
+    help="自动：.env 有真实 API Key 就用真实模型，否则用演示模式；也可手动强制指定。",
 )
-
 if _mode_choice == "自动（推荐）":
     APP_MODE = "真实模型" if _HAS_KEY else "演示模式"
 elif _mode_choice == "强制演示模式":
@@ -59,17 +42,6 @@ st.caption(
     + ("真实调用大模型生成用例" if APP_MODE == "真实模型" else "固定生成示例用例；在 .env 填入 API Key 后自动切换为真实模型")
 )
 
-# 模式选择：默认"自动"（按 .env 是否有 Key 判定）；也可以手动指定，比如有 Key 但想用演示模式
-_mode_choice = st.radio(
-    "模型模式",
-    ["自动", "真实模型", "演示模式"],
-    index=0,
-    horizontal=True,
-    help="自动：.env 有真实 API Key 就用真实模型，否则用演示模式。手动：强制使用指定模式。",
-)
-if _mode_choice != "自动":
-    APP_MODE = _mode_choice
-
 # ================= 功能一：生成测试用例 =================
 st.subheader("1. 生成测试用例")
 
@@ -81,21 +53,14 @@ if st.button("生成测试用例"):
         st.session_state["error"] = "需求不能为空，请输入要测试的功能描述。"
         st.session_state.pop("cases", None)
     elif APP_MODE == "真实模型":
-        # 真实路线：先问模型 → 拿到 JSON 文本 → 交给解析 + 验卡员
-        prompt = _LLM_PROMPT_TEMPLATE.format(requirement=requirement)
-        llm = call_llm(prompt)
-        if not llm["ok"]:
-            # 模型调用失败：显示人话提示，绝不把堆栈抛给用户
-            st.session_state["error"] = "模型调用失败：" + llm["error"]
-            st.session_state.pop("cases", None)
+        # 真实路线：core 内部完成"调模型 → 解析 → 校验 → 不合格自动修正（有限次）"
+        result = generate_cases_with_llm(requirement)
+        if result["ok"]:
+            st.session_state["cases"] = result["cases"]
+            st.session_state.pop("error", None)
         else:
-            result = generate_cases(requirement, model_text=llm["content"])
-            if result["ok"]:
-                st.session_state["cases"] = result["cases"]
-                st.session_state.pop("error", None)
-            else:
-                st.session_state["error"] = result["error"]
-                st.session_state.pop("cases", None)
+            st.session_state["error"] = result["error"]
+            st.session_state.pop("cases", None)
     else:
         # 演示路线：填表机直接生成
         result = generate_cases(requirement)
