@@ -61,7 +61,8 @@ def make_post_raiser(exc):
 # ============ 1. 网络层失败：超时 / 连接不上 / 其他请求异常 ============
 
 def test_call_llm_timeout_no_key_leak(monkeypatch):
-    """请求超时：返回可理解错误，且绝不泄露 Key。"""
+    """请求超时：返回可理解错误，且绝不泄露 Key。setattr(工具箱, "锤子", 新锤子)
+"""
     monkeypatch.setattr(core.requests, "post",
                         make_post_raiser(requests.exceptions.Timeout()))
     result = call_llm("你好")
@@ -96,6 +97,9 @@ def test_call_llm_401(monkeypatch):
     """鉴权失败：提示检查 Key，且错误信息不含 Key 本身。"""
     monkeypatch.setattr(core.requests, "post",
                         lambda *a, **k: FakeResponse(401, {"error": "invalid key"}))
+    # 等价写法：
+    # def fake_post(*a, **k):
+    #     return FakeResponse(401, {"error": "invalid key"})
     result = call_llm("你好")
     assert result["ok"] is False
     assert "鉴权失败" in result["error"]
