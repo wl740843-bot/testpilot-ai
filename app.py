@@ -7,17 +7,12 @@
 import streamlit as st
 import pandas as pd
 import openpyxl
-import os
 from io import BytesIO
-
 from dotenv import load_dotenv
+
 load_dotenv()  # 读取 .env（幂等，core.py 也已加载）
 
-from core import generate_cases, analyze_failure, generate_cases_with_llm
-
-# 模式判定依据：.env 有没有真实 Key（被手动强制时听用户的）
-_API_KEY = os.getenv("DASHSCOPE_API_KEY", "").strip()
-_HAS_KEY = _API_KEY and _API_KEY != "your_key_here"
+from core import generate_cases, analyze_failure, generate_cases_with_llm, resolve_mode
 
 st.set_page_config(page_title="TestPilot AI 测试助手")
 
@@ -29,17 +24,13 @@ _mode_choice = st.radio(
     horizontal=True,
     help="自动：.env 有真实 API Key 就用真实模型，否则用演示模式；也可手动强制指定。",
 )
-if _mode_choice == "自动（推荐）":
-    APP_MODE = "真实模型" if _HAS_KEY else "演示模式"
-elif _mode_choice == "强制演示模式":
-    APP_MODE = "演示模式"
-else:
-    APP_MODE = "真实模型"
+APP_MODE = resolve_mode(_mode_choice)
 
 st.title("TestPilot AI 测试助手")
 st.caption(
     f"当前模式：{APP_MODE} —— "
-    + ("真实调用大模型生成用例" if APP_MODE == "真实模型" else "固定生成示例用例；在 .env 填入 API Key 后自动切换为真实模型")
+    + (
+        "真实调用大模型生成用例" if APP_MODE == "真实模型" else "固定生成示例用例；在 .env 填入 API Key 后自动切换为真实模型")
 )
 
 # ================= 功能一：生成测试用例 =================
@@ -48,28 +39,16 @@ st.subheader("1. 生成测试用例")
 requirement = st.text_input("请输入需求描述", placeholder="例如：登录功能")
 
 if st.button("生成测试用例"):
-    # 统一先拦空需求：别让空需求白白浪费一次模型调用
-    if not requirement or requirement.strip() == "":
-        st.session_state["error"] = "需求不能为空，请输入要测试的功能描述。"
-        st.session_state.pop("cases", None)
-    elif APP_MODE == "真实模型":
-        # 真实路线：core 内部完成"调模型 → 解析 → 校验 → 不合格自动修正（有限次）"
+    if APP_MODE == "真实模型":
         result = generate_cases_with_llm(requirement)
-        if result["ok"]:
-            st.session_state["cases"] = result["cases"]
-            st.session_state.pop("error", None)
-        else:
-            st.session_state["error"] = result["error"]
-            st.session_state.pop("cases", None)
     else:
-        # 演示路线：填表机直接生成
         result = generate_cases(requirement)
-        if result["ok"]:
-            st.session_state["cases"] = result["cases"]
-            st.session_state.pop("error", None)
-        else:
-            st.session_state["error"] = result["error"]
-            st.session_state.pop("cases", None)
+    if result["ok"]:
+        st.session_state["cases"] = result["cases"]
+        st.session_state.pop("error", None)
+    else:
+        st.session_state["error"] = result["error"]
+        st.session_state.pop("cases", None)
 
 if "cases" in st.session_state:
     st.success(f"已生成 {len(st.session_state['cases'])} 条测试用例（{APP_MODE}）")
@@ -87,7 +66,7 @@ if "cases" in st.session_state:
 elif "error" in st.session_state:
     st.error(st.session_state["error"])
 
-# ================= 功能二：pytest 日志分析 =================
+# ================= 功能二：生成测试用例 =================
 st.divider()
 st.subheader("2. pytest 日志分析")
 

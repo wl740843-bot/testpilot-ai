@@ -169,6 +169,24 @@ def generate_cases(requirement: str, model_text: str = None) -> dict:
     # 4. 全部通过，交结果
     return {"ok": True, "cases": raw_cases, "error": None}
 
+def has_valid_key() -> bool:
+    """判断 .env 是否配置了有效的 API Key（非空且不是占位符）。"""
+    key = os.getenv("DASHSCOPE_API_KEY", "").strip()
+    return bool(key) and key != "your_key_here"
+
+def resolve_mode(choice: str) -> str:
+    """根据用户模式选择 + 是否有 Key，解析最终运行模式。
+
+    返回 "真实模型" 或 "演示模式"：
+    - 强制演示模式 → 演示模式
+    - 强制真实模型 → 真实模型
+    - 自动（默认）→ 有 Key 走真实模型，否则演示模式
+    """
+    if choice == "强制演示模式":
+        return "演示模式"
+    if choice == "强制真实模型":
+        return "真实模型"
+    return "真实模型" if has_valid_key() else "演示模式"
 
 def call_llm(prompt: str, timeout: int = 30) -> dict:
     """调用真实大模型（阿里百炼 · OpenAI 兼容接口），返回模型回复文本。
@@ -189,7 +207,7 @@ def call_llm(prompt: str, timeout: int = 30) -> dict:
     model = os.getenv("DASHSCOPE_MODEL", "qwen-plus").strip()
 
     # 2. 配置检查：没配齐就明确报错，绝不带着假配置发请求
-    if not api_key or api_key == "your_key_here":
+    if not has_valid_key():
         return {"ok": False, "content": "", "error": "未配置 DASHSCOPE_API_KEY，请在 .env 中填入真实 API Key，或使用演示模式。"}
     if not base_url or "{WorkspaceId}" in base_url:
         return {"ok": False, "content": "", "error": "BASE_URL 未配置或仍是占位符，请在 .env 中填写正确的 API 根地址。"}
