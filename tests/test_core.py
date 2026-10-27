@@ -15,6 +15,8 @@ from core import (
     parse_json,
     generate_cases,
     analyze_failure,
+    has_valid_key,
+    resolve_mode,
 )
 
 
@@ -253,3 +255,48 @@ def test_analyze_lowercase_failed_red_first():
     res = analyze_failure(log_text)
     # 红绿判断：检查clues是否抓到failed；修复前clues=["未发现..."]，断言失败变红
     assert any("failed" in c.lower() for c in res["clues"])
+
+
+# ============ Day 16：has_valid_key / resolve_mode ============
+def test_has_valid_key_normal(monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-test123")
+    assert has_valid_key() is True
+
+
+def test_has_valid_key_missing(monkeypatch):
+    monkeypatch.delenv("DASHSCOPE_API_KEY")
+    assert has_valid_key() is False
+
+
+def test_has_valid_key_placeholder(monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "your_key_here")
+    assert has_valid_key() is False
+
+
+def test_has_valid_key_strip(monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", " sk-test123 ")
+    assert has_valid_key() is True
+
+
+def test_resolve_mode_force_demo(monkeypatch):
+    """强制演示模式 → 即使有 Key 也返回演示模式。"""
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-test123")
+    assert resolve_mode("强制演示模式") == "演示模式"
+
+
+def test_resolve_mode_force_real(monkeypatch):
+    """强制真实模型 → 即使没 Key 也返回真实模型。"""
+    monkeypatch.delenv("DASHSCOPE_API_KEY")
+    assert resolve_mode("强制真实模型") == "真实模型"
+
+
+def test_resolve_mode_auto_with_key(monkeypatch):
+    """自动 + 有 Key → 真实模型。"""
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-test123")
+    assert resolve_mode("自动（推荐）") == "真实模型"
+
+
+def test_resolve_mode_auto_no_key(monkeypatch):
+    """自动 + 没 Key → 演示模式。"""
+    monkeypatch.delenv("DASHSCOPE_API_KEY")
+    assert resolve_mode("自动（推荐）") == "演示模式"
