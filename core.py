@@ -6,10 +6,16 @@
 3. pytest 日志分析（analyze_failure）
 """
 
-
 import json
 import os
 import requests
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 from dotenv import load_dotenv
 
 # 读取 .env（找不到文件时静默跳过，不影响纯演示模式运行）
@@ -111,23 +117,25 @@ def validate_cases(cases: list) -> dict:
 
 def parse_json(text: str) -> dict:
     """把模型返回的文本解析成 Python 数据。
-
     返回统一结构：
         {"ok": True, "data": [...], "error": None}    解析成功
         {"ok": False, "data": [], "error": "原因"}    解析失败
     """
     # 空文本：直接报错，别去解析
     if text is None or text.strip() == "":
+        logger.error("parse_json：输入文本为空")
         return {"ok": False, "data": [], "error": "模型返回内容为空。"}
 
     # 尝试解析 JSON；失败会被 except 接住，程序不崩溃
     try:
         data = json.loads(text)
     except json.JSONDecodeError as e:
+        logger.error("parse_json：JSON解析失败")
         return {"ok": False, "data": [], "error": f"不是合法的 JSON 格式：{e}"}
 
     # 新：必须是最外层是列表，字符串/数字/字典都不算用例数据
     if not isinstance(data, list):
+        logger.error("parse_json：JSON合法，但根节点不是数组列表")
         return {"ok": False, "data": [], "error": "JSON 格式正确，但最外层必须是列表（用例数组）。"}
 
     return {"ok": True, "data": data, "error": None}
@@ -169,10 +177,12 @@ def generate_cases(requirement: str, model_text: str = None) -> dict:
     # 4. 全部通过，交结果
     return {"ok": True, "cases": raw_cases, "error": None}
 
+
 def has_valid_key() -> bool:
     """判断 .env 是否配置了有效的 API Key（非空且不是占位符）。"""
     key = os.getenv("DASHSCOPE_API_KEY", "").strip()
     return bool(key) and key != "your_key_here"
+
 
 def resolve_mode(choice: str) -> str:
     """根据用户模式选择 + 是否有 Key，解析最终运行模式。
@@ -187,6 +197,7 @@ def resolve_mode(choice: str) -> str:
     if choice == "强制真实模型":
         return "真实模型"
     return "真实模型" if has_valid_key() else "演示模式"
+
 
 def call_llm(prompt: str, timeout: int = 30) -> dict:
     """调用真实大模型（阿里百炼 · OpenAI 兼容接口），返回模型回复文本。
@@ -208,8 +219,11 @@ def call_llm(prompt: str, timeout: int = 30) -> dict:
 
     # 2. 配置检查：没配齐就明确报错，绝不带着假配置发请求
     if not has_valid_key():
-        return {"ok": False, "content": "", "error": "未配置 DASHSCOPE_API_KEY，请在 .env 中填入真实 API Key，或使用演示模式。"}
+        logger.warning("DASHSCOPE_API_KEY 未配置或为占位符")
+        return {"ok": False, "content": "",
+                "error": "未配置 DASHSCOPE_API_KEY，请在 .env 中填入真实 API Key，或使用演示模式。"}
     if not base_url or "{WorkspaceId}" in base_url:
+        logger.warning("BASE_URL 为空或者仍是占位符")
         return {"ok": False, "content": "", "error": "BASE_URL 未配置或仍是占位符，请在 .env 中填写正确的 API 根地址。"}
 
     # 3. 组装请求：根地址 + 聊天窗口
@@ -226,11 +240,18 @@ def call_llm(prompt: str, timeout: int = 30) -> dict:
     # 4. 发送请求：网络层错误在这里接住（请求没到服务器）
     try:
         resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+        # 超时分支
     except requests.exceptions.Timeout:
-        return {"ok": False, "content": "", "error": f"请求超时（{timeout} 秒），请检查网络后重试。"}
+        logger.error("调用大模型接口超时")
+        return {"ok": False, "content": "", "error": "请求超时，请检查网络或者稍后重试。"}
+
+    # 连接失败分支
     except requests.exceptions.ConnectionError:
-        return {"ok": False, "content": "", "error": "无法连接到模型服务，请检查 BASE_URL 拼写和网络连接。"}
+        logger.error("无法连接到大模型服务地址")
+        return {"ok": False, "content": "", "error": "连接失败，请检查 BASE_URL 和网络。"}
+
     except requests.exceptions.RequestException as e:
+        logger.error(f"请求发生未知网络异常: {e.__class__.__name__}")
         return {"ok": False, "content": "", "error": f"请求发生异常：{e.__class__.__name__}。请稍后重试。"}
 
     # 5. HTTP 状态码分类：请求到了服务器，但结果不理想
@@ -239,15 +260,22 @@ def call_llm(prompt: str, timeout: int = 30) -> dict:
             data = resp.json()
             answer = data["choices"][0]["message"]["content"]
         except (ValueError, KeyError, IndexError):
+            logger.error("大模型返回200，但是响应格式解析失败")
             return {"ok": False, "content": "", "error": "响应格式异常：未能从返回内容中解析出模型回复。"}
+        logger.info("大模型调用成功，正常解析到回复内容")
         return {"ok": True, "content": answer, "error": None}
 
     if resp.status_code == 401:
+        logger.error("鉴权失败，API Key 校验不通过")
         return {"ok": False, "content": "", "error": "鉴权失败（401）：API Key 无效或已过期，请检查 .env 中的 Key。"}
     if resp.status_code == 429:
-        return {"ok": False, "content": "", "error": "请求过于频繁（429）：已触发限流，请在 .env 中改用 qwen-plus 等高限流模型，或稍等 1 分钟重试。"}
+        logger.error("请求被限流（429）")
+        return {"ok": False, "content": "",
+                "error": "请求过于频繁（429）：已触发限流，请在 .env 中改用 qwen-plus 等高限流模型，或稍等 1 分钟重试。"}
     if resp.status_code >= 500:
+        logger.error(f"服务端异常，status_code={resp.status_code}")
         return {"ok": False, "content": "", "error": f"模型服务暂时出错（{resp.status_code}），请稍后重试。"}
+    logger.error(f"收到未预期HTTP状态码：{resp.status_code}")
     return {"ok": False, "content": "", "error": f"未预期的状态码 {resp.status_code}，响应内容：{resp.text[:200]}"}
 
 
@@ -301,8 +329,10 @@ def generate_cases_with_llm(requirement: str, max_retries: int = 2) -> dict:
     max_retries：解析/校验失败后最多重写几次（默认 2，即最多共调用 3 次）。
     限制次数是为了避免"无限重试"白烧 token、无限等待。
     """
+    logger.info("开始执行LLM测试用例生成流程")
     # 1. 拦空需求：不浪费任何一次模型调用
     if requirement is None or requirement.strip() == "":
+        logger.warning("需求为空，拦截，不发起模型调用")
         return {"ok": False, "cases": [], "error": "需求不能为空，请输入要测试的功能描述。"}
 
     # 2. 循环调用：第 1 次 + 最多 max_retries 次修正
@@ -311,23 +341,29 @@ def generate_cases_with_llm(requirement: str, max_retries: int = 2) -> dict:
     for attempt in range(1, max_retries + 2):
         llm = call_llm(prompt)
         if not llm["ok"]:
+            logger.error(f"第{attempt}轮 call_llm 调用失败，终止生成流程")
             return {"ok": False, "cases": [], "error": "模型调用失败：" + llm["error"]}
 
         result = generate_cases(requirement, model_text=llm["content"])
         if result["ok"]:
+            logger.info(f"第{attempt}轮生成校验成功，拿到有效测试用例")
             return result
 
         # 解析/校验失败：把错误原因反馈给模型，让它重写（但不超过 max_retries 次）
         if attempt <= max_retries:
+            logger.warning(f"第{attempt}轮校验失败，还有重试次数，准备重新请求模型，失败原因：{result['error']}")
             prompt = (
-                LLM_PROMPT_TEMPLATE.replace("{requirement}", requirement)
-                + "\n\n你上一次的输出未通过程序校验，原因："
-                + result["error"]
-                + "\n请重新生成，务必只输出合法 JSON 数组，不要任何额外文字。"
+                    LLM_PROMPT_TEMPLATE.replace("{requirement}", requirement)
+                    + "\n\n你上一次的输出未通过程序校验，原因："
+                    + result["error"]
+                    + "\n请重新生成，务必只输出合法 JSON 数组，不要任何额外文字。"
             )
 
     # 3. 修正次数用完仍未通过：如实报错，绝不把非法数据当有效用例
+    logger.error(f"全部{max_retries + 1}次尝试都校验失败，生成用例失败，最后错误：{result['error']}")
     return {"ok": False, "cases": [], "error": f"模型连续 {max_retries + 1} 次输出未通过校验：{result['error']}"}
+
+
 # ============ pytest 日志分析：报错关键词 → 排查建议 对照表 ============
 # 线索归线索，结论归结论：这里只给"排查方向"，不给"已确认根因"。
 FAILURE_RULES = {
@@ -385,4 +421,3 @@ def analyze_failure(log_text: str) -> dict:
 
     # 4. 有关键词：交线索和建议
     return {"ok": True, "clues": clues, "suggestions": suggestions, "error": None}
-

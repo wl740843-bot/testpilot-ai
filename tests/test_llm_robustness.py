@@ -324,3 +324,63 @@ def test_no_key_leak_any_failure(monkeypatch, fake_post_factory, status):
     result = call_llm("你好")
     assert result["ok"] is False
     assert FAKE_KEY not in result["error"], f"路径[{status}]泄露了 Key！"
+
+
+# ============ Day 17：验证【空需求打出 warning 日志】 ============
+def test_generate_with_llm_empty_requirement_log(caplog):
+    result = generate_cases_with_llm("   ")
+    assert result["ok"] is False
+    # 检查有没有这条 warning
+    assert "需求为空，拦截，不发起模型调用" in caplog.text
+    # 同时校验级别是 WARNING
+    warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warning_records) == 1
+
+
+def test_call_llm_no_key_log(caplog, monkeypatch):
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    result = call_llm("你好")
+    assert result["ok"] is False
+    assert "DASHSCOPE_API_KEY 未配置或为占位符" in caplog.text
+
+    warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warning_records) == 1
+
+
+def test_call_llm_timeout_log(caplog, monkeypatch):
+    monkeypatch.setattr(core.requests, "post",
+                        make_post_raiser(requests.exceptions.Timeout()))
+    # 先设置合法key，保证走到发请求环节
+    monkeypatch.setenv("DASHSCOPE_API_KEY", FAKE_KEY)
+    result = call_llm("你好")
+    assert result["ok"] is False
+    assert "调用大模型接口超时" in caplog.text
+
+    error_records = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(error_records) == 1
+
+
+def test_parse_json_empty_text_log(caplog):
+    result = parse_json("")
+    assert result["ok"] is False
+    assert "parse_json：输入文本为空" in caplog.text
+    error_records = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(error_records) == 1
+
+
+def test_parse_json_invalid_json_log(caplog):
+    result = parse_json("{bad json")
+    assert result["ok"] is False
+    assert "parse_json：JSON解析失败" in caplog.text
+    error_records = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(error_records) == 1
+
+
+def test_parse_json_not_list_log(caplog):
+    # 合法JSON，但根是字典，不是数组
+    result = parse_json('{"title": "登录"}')
+    assert result["ok"] is False
+    assert "parse_json：JSON合法，但根节点不是数组列表" in caplog.text
+    error_records = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(error_records) == 1
+
