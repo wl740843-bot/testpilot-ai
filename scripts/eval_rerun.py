@@ -1,13 +1,18 @@
 """eval_rerun.py：改进提示词后重跑样本需求，输出存文件供对比（Day 12 用）。
 
 用法（项目根目录、虚拟环境激活时）：
-    python eval_rerun.py
+    python scripts/eval_rerun.py
 
 样本：R01（对照组，原判优）+ R03/R05（原判差）+ R04（原判中）
 产物：
     reports/eval_outputs_v2.md —— 改进后提示词的样本输出
 """
 import json
+import sys
+from pathlib import Path
+
+# 脚本归档在 scripts/，但 core 在项目根目录：把根目录加入搜索路径
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import generate_cases_with_llm
 

@@ -1,12 +1,17 @@
 """eval_run.py：批量跑评估需求，输出存文件供人工判卷（Day 12 用）。
 
 用法（项目根目录、虚拟环境激活时）：
-    python eval_run.py
+    python scripts/eval_run.py
 
 产物：
     reports/eval_outputs.md —— 20 条需求的模型原始输出
 """
 import json
+import sys
+from pathlib import Path
+
+# 脚本归档在 scripts/，但 core 在项目根目录：把根目录加入搜索路径
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import generate_cases_with_llm
 

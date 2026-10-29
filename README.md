@@ -76,13 +76,14 @@ testpilot-ai/
 │                            #           generate_cases / call_llm / generate_cases_with_llm /
 │                            #           analyze_failure / has_valid_key / resolve_mode
 ├── logging_config.py        # 日志配置：控制台 + 文件双通道，RotatingFileHandler 自动切割
-├── api_test.py              # Day 8：阿里百炼 API 直连验证脚本
-├── eval_run.py              # Day 12：批量跑 20 条需求评估集
-├── eval_rerun.py            # Day 12：改进提示词后重跑样本对比
 ├── requirements.txt         # 依赖清单
 ├── .env.example             # 环境变量样例（含字段说明，不放真实密钥）
 ├── .gitignore               # 忽略 .venv / .env / 缓存 / *.log 等
 ├── README.md                # 本文件
+├── scripts/                 # 一次性历史脚本（Day 8 / Day 12 评估用，归档保留）
+│   ├── api_test.py          # Day 8：阿里百炼 API 直连验证脚本
+│   ├── eval_run.py          # Day 12：批量跑 20 条需求评估集
+│   └── eval_rerun.py        # Day 12：改进提示词后重跑样本对比
 ├── docs/
 │   ├── demo-script.md       # 3 分钟演示脚本（Day 19）
 │   └── screenshots/         # README 使用的运行截图
@@ -97,7 +98,6 @@ testpilot-ai/
     └── eval_outputs_v2.md   # 提示词改进后重跑样本对比
 ```
 
-> `main.py` 是 PyCharm 新建项目自带的示例脚本，与项目功能无关。
 > `.venv/`、`__pycache__/`、`.pytest_cache/` 为环境与缓存目录，已由 `.gitignore` 忽略。
 
 ## 5. Windows 环境安装步骤
