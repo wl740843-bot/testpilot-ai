@@ -16,3 +16,6 @@ __pycache__/
 # IDE 配置
 .idea/
 .vscode/
+
+# 日志文件（运行时生成，不提交）
+*.log

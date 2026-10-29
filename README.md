@@ -32,6 +32,7 @@
 | 表格内编辑 | 用例生成后直接在页面表格里修改（Streamlit `data_editor`） |
 | 导出 Excel | 一键下载 `.xlsx`，可直接用 Excel / WPS 打开 |
 | 日志分析 | 粘贴 pytest 报错日志，规则匹配提取关键词并给出**初步排查建议**（仅供参考，不下结论） |
+| 日志落盘 + 自动切割 | 日志同时写进 `app.log`（只存 WARNING 及以上），写满 1MB 自动滚动，最多保留 3 个备份 |
 | 双模式切换 | 页面提供"自动（推荐）/ 强制演示 / 强制真实"三种选择 |
 
 ### 2.1 主页面与用例生成（演示模式）
@@ -40,7 +41,13 @@
 
 ![用例生成演示](docs/screenshots/home.png)
 
-### 2.2 pytest 日志分析
+### 2.2 用例编辑与 Excel 导出
+
+表格可直接编辑，点"下载 Excel 用例表"导出 `.xlsx`（页面下方同时是 pytest 日志分析入口）：
+
+![用例编辑与Excel导出](docs/screenshots/cases_download.png)
+
+### 2.3 pytest 日志分析
 
 粘贴 pytest 报错日志，点击"分析日志"，自动定位报错行、提取关键词并给出排查建议：
 
@@ -68,18 +75,21 @@ testpilot-ai/
 ├── core.py                  # 核心逻辑：demo_cases / validate_cases / parse_json /
 │                            #           generate_cases / call_llm / generate_cases_with_llm /
 │                            #           analyze_failure / has_valid_key / resolve_mode
+├── logging_config.py        # 日志配置：控制台 + 文件双通道，RotatingFileHandler 自动切割
 ├── api_test.py              # Day 8：阿里百炼 API 直连验证脚本
 ├── eval_run.py              # Day 12：批量跑 20 条需求评估集
 ├── eval_rerun.py            # Day 12：改进提示词后重跑样本对比
 ├── requirements.txt         # 依赖清单
 ├── .env.example             # 环境变量样例（含字段说明，不放真实密钥）
-├── .gitignore               # 忽略 .venv / .env / 缓存等
+├── .gitignore               # 忽略 .venv / .env / 缓存 / *.log 等
 ├── README.md                # 本文件
 ├── docs/
+│   ├── demo-script.md       # 3 分钟演示脚本（Day 19）
 │   └── screenshots/         # README 使用的运行截图
 ├── tests/
 │   ├── test_core.py         # 核心逻辑测试（35 个）
-│   └── test_llm_robustness.py  # 异常与边界测试（32 个）
+│   ├── test_llm_robustness.py  # 异常与边界测试（32 个）
+│   └── test_logging_config.py  # 日志落盘与切割测试（6 个）
 └── reports/
     ├── evaluation-plan.md   # 20 条需求评估集 + 5 维度评估标准
     ├── evaluation.md        # 评估总结
@@ -153,18 +163,19 @@ Copy-Item .env.example .env
 python -m pytest tests -q
 ```
 
-**当前实际测试结果（2026-10-28 验证）：**
+**当前实际测试结果（2026-10-29 验证）：**
 
 ```text
-67 passed
+73 passed
 ```
 
-> 通过数稳定为 67；耗时约 1 秒，随机器性能浮动。
+> 通过数稳定为 73；耗时约 1 秒，随机器性能浮动。
 
 | 测试文件 | 数量 | 覆盖内容 |
 |---------|------|---------|
 | `tests/test_core.py` | 35 个 | 演示用例生成、6 字段校验、JSON 解析、生成流水线、日志分析、双模式解析、Key 判断 |
 | `tests/test_llm_robustness.py` | 32 个 | 异常与边界：超时 / 网络错误 / 401 / 429 / 5xx / 未知状态码、空内容、非法 JSON、超长需求、Key 不泄露、重试机制、日志分级 |
+| `tests/test_logging_config.py` | 6 个 | 日志落盘：双通道、文件生成、分级过滤（INFO 不进文件）、切割滚动、备份数限制、重复调用幂等 |
 
 测试默认**不发起真实网络请求**（全部用 `monkeypatch` 模拟），不消耗 API 费用；部分测试用 `caplog` 校验日志内容与级别。
 
@@ -177,16 +188,15 @@ python -m pytest tests -q
 - **评估集是人工判断**：Day 11-12 的 5 维度评分是"AI 辅助判卷 + 人工复核"，不是自动化指标。
 - **日志分析是规则匹配**：覆盖常见报错关键词（AssertionError / TypeError / ImportError 等 8 类）；复杂嵌套报错需人工补充 traceback 判断。
 - **字段固定 6 个**：真实模型返回超出 6 字段约定会被校验打回，暂不支持用户自定义字段。
-- **日志暂未落盘**：当前日志输出到控制台，尚未写入文件（后续计划第 1 项）。
 
 ### 后续计划
 
 | 优先级 | 计划 | 说明 |
 |--------|------|------|
-| 高 | 日志写入文件 + 自动切割 | `FileHandler` 落盘 + `RotatingFileHandler` 按大小滚动，防止日志无限膨胀 |
-| 中 | 日志分级写入 | 控制台保持 INFO，文件只记 WARNING 及以上 |
 | 中 | 补充更多报错关键词 | 扩大日志分析规则表，覆盖更多常见异常 |
 | 低 | 自定义用例字段 | 允许用户配置用例模板字段，突破固定 6 字段 |
+
+> 已完成：日志落盘 + 自动切割 + 分级写入（Day 19，`logging_config.py`）。
 
 ## 开发记录
 
@@ -209,10 +219,11 @@ python -m pytest tests -q
 | 第 3 周 | Day 15 | 清理模块边界：模式逻辑收拢到 core | `728c921` |
 | | Day 16 | 强化测试设计：has_valid_key / resolve_mode 补测 | `59ec058` |
 | | Day 17 | 引入 logging 分级日志 + caplog 日志测试 | `62ce4ae` |
-| | Day 18 | 完善 README 与使用文档 | 今日提交 |
+| | Day 18 | 完善 README 与使用文档 | `b67577d` |
+| | Day 19 | 日志落盘 + 自动切割（logging_config + 6 测试）；整理演示脚本与截图 | `7f956f8` / `230b2fd` |
 
 ---
 
 *第 1 周完成：页面可运行、演示用例可生成、Excel 可导出、常见日志可分析、27 个测试通过。*
 *第 2 周完成：接入真实大模型、异常处理与 Key 保护、53 个测试通过、20 条需求评估集与评估记录。*
-*第 3 周进行中：日志体系（Day 17）、文档完善（Day 18），当前 67 个测试全部通过。*
+*第 3 周进行中：日志体系落盘（Day 17-19）、演示脚本（Day 19），当前 73 个测试全部通过。*

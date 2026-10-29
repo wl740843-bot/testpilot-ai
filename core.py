@@ -9,14 +9,11 @@
 import json
 import os
 import requests
-import logging
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-logger = logging.getLogger(__name__)
 from dotenv import load_dotenv
+from logging_config import setup_logger
+
+# 统一日志：控制台 INFO + 文件 WARNING（自动切割，见 logging_config.py）
+logger = setup_logger(__name__)
 
 # 读取 .env（找不到文件时静默跳过，不影响纯演示模式运行）
 load_dotenv()
